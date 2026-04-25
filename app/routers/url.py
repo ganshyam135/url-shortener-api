@@ -7,6 +7,8 @@ from app.models.url import URL
 from app.db.deps import get_db
 from app.core.utils import encode_base62
 
+from app.core.redis import redis_client
+
 
 router = APIRouter()
 
@@ -30,10 +32,20 @@ def shorten_url(data: URLCreate, db: Session = Depends(get_db)):
 
 @router.get("/{short_code}")
 def redirect_url(short_code: str, db: Session=Depends(get_db)):
+
+    cached_url = redis_client.get(short_code)
+    if cached_url:
+        print("CACHE HIT")
+        return RedirectResponse(url=cached_url)
+    
+    print("DB HIT")
+
     url = db.query(URL).filter(URL.short_code == short_code).first()
 
     if not url:
         raise HTTPException(status_code=404, detail="URL not found")
+    
+    redis_client.set(short_code, url.original_url, ex=3600)
     
     #increment clicks
     url.clicks += 1
