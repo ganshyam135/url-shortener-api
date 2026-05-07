@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from fastapi.responses import RedirectResponse
 
@@ -15,7 +15,30 @@ router = APIRouter()
 BASE_URL = "http://localhost:8000"
 
 @router.post("/shorten", response_model=URLResponse)
-def shorten_url(data: URLCreate, db: Session = Depends(get_db)):
+def shorten_url(
+    request: Request,
+    data: URLCreate,
+    db: Session = Depends(get_db)
+):
+    client_ip = request.client.host
+
+    redis_key = f"rate_limit:{client_ip}"
+
+    request_count = redis_client.get(redis_key)
+
+    if request_count and int(request_count) >= 5:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Try again later."
+            )
+    
+    pipe = redis_client.pipeline()
+
+    pipe.incr(redis_key, 1)
+    pipe.expire(redis_key, 60)
+    pipe.execute()
+    
+
     new_url = URL(original_url=str(data.original_url))
     db.add(new_url)
     db.commit()
